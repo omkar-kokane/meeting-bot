@@ -281,7 +281,13 @@ export class GoogleMeetBot extends MeetBotBase {
           }
         );
 
-        await clickContinueWithoutDevicesIfPresent();
+        // After clicking join, Google Meet may show the camera/mic dialog again.
+        // Keep dismissing it until it is gone (up to 5 tries, 1 second apart).
+        for (let i = 0; i < 5; i++) {
+          const dismissed = await clickContinueWithoutDevicesIfPresent(3000);
+          if (!dismissed) break;
+          await this.page.waitForTimeout(1000);
+        }
 
         // Do this to ensure meeting bot has joined the meeting
         const wanderingTime = config.joinWaitTime * 60 * 1000; // Give some time to admit the bot
@@ -300,6 +306,9 @@ export class GoogleMeetBot extends MeetBotBase {
 
           waitInterval = setInterval(async () => {
             try {
+              // Keep dismissing the camera/mic dialog if it reappears after clicking join
+              await clickContinueWithoutDevicesIfPresent(500).catch(() => {});
+
               const currentUrl = this.page.url();
               if (!currentUrl.includes('meet.google.com')) {
                 redirectedFromMeetUrl = currentUrl;
@@ -432,9 +441,10 @@ export class GoogleMeetBot extends MeetBotBase {
                       // Fallback: Check for Leave call button which indicates we're in a call
                       const leaveCallButton = document.querySelector('button[aria-label="Leave call"], button[aria-label="Anruf verlassen"]');
                       if (leaveCallButton) {
-                        // If we have Leave call button AND no lobby mode text, we're likely in the call
+                        // If we have Leave call button AND no hard-block lobby text, we're in the call.
+                        // NOTE: "You're the only one here" means the bot IS in the meeting (open calls).
+                        // Only "Asking to join" and the host-approval text mean we're still waiting.
                         const hasLobbyText = bodyText.includes('Asking to join') ||
-                                            bodyText.includes('You\'re the only one here') ||
                                             bodyText.includes('Teilnahme erbitten') ||
                                             bodyText.includes('Bitte warten Sie, bis Sie vom Organisator');
                         if (!hasLobbyText) {

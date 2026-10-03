@@ -780,17 +780,31 @@ class DiskUploader implements IUploader {
 
       let uploadResult = false;
       // Upload recording to configured storage
-      if (config.uploaderType === 'screenapp') {
-        uploadResult = await this.uploadRecordingToScreenApp();
-      } else if (config.uploaderType === 's3') {
-        // Route to selected object storage provider (S3 or Azure) based on configuration
-        uploadResult = await this.uploadRecordingToObjectStorage();
+      if (config.uploaderType === 'local') {
+        const filePath = DiskUploader.getFilePath(this._userId, this._tempFileId, this.fileExtension);
+        const outDir = path.join(process.cwd(), 'recordings', this._userId);
+        await fs.promises.mkdir(outDir, { recursive: true });
+        const fileName = fileNameTemplate(this._namePrefix, getTimeString(this._timezone, this._logger));
+        const outPath = path.join(outDir, `${fileName}${this.fileExtension}`);
+        await fs.promises.copyFile(filePath, outPath);
+        this._logger.info(`Local upload finished. File saved to ${outPath}`);
+        uploadResult = true;
+        this.lastUploadedBlobUrl = outPath;
+        this.lastStorageDetails = { provider: 'local', path: outPath, duration: this.recordingDuration };
+        await this.deleteTempFileAsync();
       } else {
-        throw new Error(`Unsupported UPLOADER_TYPE configuration: ${config.uploaderType}`);
-      }
+        if (config.uploaderType === 'screenapp') {
+          uploadResult = await this.uploadRecordingToScreenApp();
+        } else if (config.uploaderType === 's3') {
+          // Route to selected object storage provider (S3 or Azure) based on configuration
+          uploadResult = await this.uploadRecordingToObjectStorage();
+        } else {
+          throw new Error(`Unsupported UPLOADER_TYPE configuration: ${config.uploaderType}`);
+        }
 
-      // Delete temp file after the upload is finished
-      await this.deleteTempFileAsync();
+        // Delete temp file after the upload is finished
+        await this.deleteTempFileAsync();
+      }
 
       // Send optional notifications on success
       if (uploadResult) {
